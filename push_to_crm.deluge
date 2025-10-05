@@ -1,0 +1,57 @@
+// ========= 1) Tomar campos del Form =========
+email = ifnull(input.Email_Address,"");
+phone = ifnull(input.Phone_Number,"");
+regDate = input.Registration_Date;
+
+// Campo "Name" (tipo Name: tiene subcampos first_name / last_name)
+fullName = ifnull(input.Full_Name, "");
+firstName = "";
+lastName = "";
+
+if(fullName.contains(" "))
+{
+	firstName = fullName.getPrefix(" ");
+	lastName = fullName.getSuffix(" ");
+}
+else
+{
+	firstName = fullName;
+	lastName = "Contato";
+}
+
+// Validación mínima: usamos Email como identificador único
+if(email == null || email.trim() == "")
+{
+	info "Email vacío: no se sincroniza con CRM.";
+	return;
+}
+
+// ========= 2) Armar el mapa para Contacts (CRM) =========
+dataMap = Map();
+dataMap.put("First_Name", firstName);
+dataMap.put("Last_Name", lastName);
+dataMap.put("Email", email);
+if(phone != "")
+{
+	dataMap.put("Phone", phone);
+}
+dataMap.put("Description", "Criado/atualizado via Zoho Creator");
+dataMap.put("Account_Name", {"name": "IT Support"}); // ejemplo con lookup a cuenta
+
+// ========= 3) Upsert por Email: search -> update | create =========
+criteria = "(Email:equals:" + email + ")";
+srch = zoho.crm.searchRecords("Contacts", criteria);
+
+if(srch != null && srch.size() > 0)
+{
+	contactId = srch.get(0).get("id");
+	upd = zoho.crm.updateRecord("Contacts", contactId, dataMap);
+	info "✅ Contacto actualizado. ID: " + contactId;
+	info upd;
+}
+else
+{
+	ins = zoho.crm.createRecord("Contacts", dataMap);
+	info "🆕 Contacto creado: ";
+	info ins;
+}
