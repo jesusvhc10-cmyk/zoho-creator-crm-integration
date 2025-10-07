@@ -1,0 +1,131 @@
+// ==========================================
+//  Function: pushToCRMContact
+//  Description: Crea o actualiza un contacto en Zoho CRM.
+//  Usa el campo Email como clave única (upsert).
+//  Si el contacto existe, se actualiza.
+//  Si no existe, se crea un nuevo registro.
+// ==========================================
+
+map pushToCRMContact(map payload)
+{
+    // ===== Configuración =====
+    connectionMap = {"connection": "crm_conn"};
+
+    result = Map();
+    result.put("status", "error");
+    result.put("action", "");
+    result.put("contact_id", "");
+    result.put("account_id", "");
+    result.put("message", "");
+
+    try
+    {
+        // ===== 1) Capturar datos del formulario =====
+        email = ifnull(payload.get("Email_Address"), "").trim().toLowerCase();
+        phone = ifnull(payload.get("Phone_Number"), "").trim();
+        accountName = ifnull(payload.get("Account_Name1"), "").trim();
+        fullNameObj = payload.get("Full_Name"); // puede venir como objeto Name o string
+
+        firstName = "";
+        lastName = "";
+
+        // ===== 1.a) Si es objeto Name, intentar leer subcampos =====
+        firstName = ifnull(fullNameObj.get("first_name"), "");
+        lastName = ifnull(fullNameObj.get("last_name"), "");
+
+        // ===== 1.b) Si no hay subcampos, separar por texto =====
+        if ((firstName == "" && lastName == "") || lastName == "")
+        {
+            fullText = ifnull(fullNameObj.toString(), "").trim();
+            if (fullText != "")
+            {
+                if (fullText.contains(" "))
+                {
+                    pos = fullText.lastIndexOf(" ");
+                    firstName = fullText.substring(0, pos);
+                    lastName = fullText.substring(pos + 1);
+                }
+                else
+                {
+                    firstName = fullText;
+                    lastName = "Contato";
+                }
+            }
+        }
+
+        // ===== 2) Validar email =====
+        if (email == "")
+        {
+            result.put("message", "Email vacío. No se sincroniza con CRM.");
+            return result;
+        }
+
+        // ===== 3) Buscar o crear Account (empresa) =====
+        accId = null;
+        if (accountName != "")
+        {
+            accCrit = "(Account_Name:equals:" + accountName + ")";
+            accSearch = zoho.crm.searchRecords("Accounts", accCrit, 1, 1, connectionMap);
+            if (accSearch != null && accSearch.size() > 0)
+            {
+                accId = accSearch.get(0).get("id");
+            }
+            else
+            {
+                accData = Map();
+                accData.put("Account_Name", accountName);
+                accIns = zoho.crm.createRecord("Accounts", accData, connectionMap);
+                accId = ifnull(accIns.get("id"), "");
+            }
+        }
+
+        // ===== 4) Preparar datos del Contact =====
+        contactMap = Map();
+        contactMap.put("First_Name", firstName);
+        contactMap.put("Last_Name", lastName);
+        contactMap.put("Email", email);
+        contactMap.put("Phone", phone);
+        contactMap.put("Description", "Criado/atualizado via Zoho Creator");
+
+        if (accId != null && accId != "")
+        {
+            accLookup = {"id": accId.toLong()};
+            contactMap.put("Account_Name", accLookup);
+        }
+
+        // ===== 5) Upsert por Email =====
+        crit = "(Email:equals:" + email + ")";
+        searchResp = zoho.crm.searchRecords("Contacts", crit, 1, 1, connectionMap);
+
+        if (searchResp != null && searchResp.size() > 0)
+        {
+            // --- Actualiza contacto existente ---
+            contactId = searchResp.get(0).get("id");
+            upd = zoho.crm.updateRecord("Contacts", contactId.toLong(), contactMap, connectionMap);
+
+            result.put("status", "ok");
+            result.put("action", "update");
+            result.put("contact_id", contactId);
+            result.put("account_id", ifnull(accId, ""));
+            result.put("message", "Contato atualizado com sucesso.");
+        }
+        else
+        {
+            // --- Crea nuevo contacto ---
+            ins = zoho.crm.createRecord("Contacts", contactMap, connectionMap);
+
+            result.put("status", "ok");
+            result.put("action", "create");
+            result.put("contact_id", ifnull(ins.get("id"), ""));
+            result.put("account_id", ifnull(accId, ""));
+            result.put("message", "Contato criado com sucesso.");
+        }
+    }
+    catch (e)
+    {
+        result.put("status", "error");
+        result.put("message", e.toString());
+    }
+
+    return result;
+}
